@@ -1,5 +1,6 @@
 package com.sohu.tv.mq.cloud.service.action;
 
+import com.sohu.tv.mq.cloud.bo.Broker;
 import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdateStep;
 import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdateStep.Action;
 import com.sohu.tv.mq.cloud.util.Result;
@@ -20,8 +21,17 @@ public class BrokerRegisterAction extends BrokerAction {
         BrokerConfigUpdateParam brokerConfigUpdateParam = new BrokerConfigUpdateParam();
         brokerConfigUpdateParam.setCid(step.getCid());
         brokerConfigUpdateParam.setAddr(step.getBrokerAddr());
-        brokerConfigUpdateParam.setConfig("registerBroker:true;");
+        brokerConfigUpdateParam.setConfig("registerBroker=true");
         return brokerService.updateBrokerConfig(brokerConfigUpdateParam);
+    }
+
+    @Override
+    protected Result<?> stepCheckStatusOK(BrokerAutoUpdateStep step, Result<?> executeResult) {
+        Result<Broker> otherBrokerResult = brokerService.queryOtherBroker(step.getCid(), step.getBrokerName(), step.getBrokerAddr());
+        if (otherBrokerResult.isNotOK()) {
+            return otherBrokerResult;
+        }
+        return brokerService.checkBrokerConnectionSize(step.toBroker(), otherBrokerResult.getResult());
     }
 
     @Override

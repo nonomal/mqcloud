@@ -3,8 +3,6 @@ package com.sohu.tv.mq.cloud.service.action;
 import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdateStep;
 import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdateStep.Action;
 import com.sohu.tv.mq.cloud.util.Result;
-import com.sohu.tv.mq.cloud.util.Status;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,34 +16,8 @@ public class BrokerShutdownAction extends BrokerAction {
 
     @Override
     protected Result<?> executeStep(BrokerAutoUpdateStep step) {
-        return mqDeployer.shutdown(step.getIp(), step.getPort());
-    }
-
-    @Override
-    protected Result<?> stepCheckStatusOK(BrokerAutoUpdateStep step, Result<?> executeResult) {
-        String pidString = String.valueOf(executeResult.getResult());
-        int pid = NumberUtils.toInt(pidString, 0);
-        if (pid == 0) {
-            return Result.getResult(Status.BROKER_AUTO_UPDATE_CHECK_STATUS_ERROR).setMessage("pid is" + pidString);
-        }
-        Result pidResult = mqDeployer.isPidDead(step.getIp(), pid);
-        if (pidResult.isOK()) {
-            if (mqDeployer.abortFileNotExist(step.getIp(), step.getBrokerBaseDir())) {
-                return pidResult;
-            }
-            return Result.getResult(Status.BROKER_AUTO_UPDATE_CHECK_STATUS_ERROR).setMessage("abort file exist");
-        }
-        return pidResult;
-    }
-
-    @Override
-    protected int stepCheckStatusWaitSeconds() {
-        return 10;
-    }
-
-    @Override
-    protected int stepCheckStatusContinuousOKTimes() {
-        return 2;
+        boolean cleanEpochFile = step.isEnableController() && !step.isMaster();
+        return mqDeployer.shutdownBroker(step.getIp(), step.getPort(), step.getBrokerBaseDir(), cleanEpochFile);
     }
 
     @Override

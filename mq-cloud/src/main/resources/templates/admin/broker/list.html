@@ -179,12 +179,12 @@
 								<button title="迁移Broker：基于rsync，适合大数量增量同步，推荐使用" data-toggle="modal" class="btn btn-xs btn-info" onclick="toMigratePage('${brokerStat.brokerIp}', '${brokerStat.baseDir!}')"><i class="fa-fw fa-solid fa-copy"></i></button>
 								</#if>
 								<#if brokerStat.version??>
+									<#if brokerStat.writable>
+										<button title="禁止客户端写入，broker下线前需要先禁止写入，等没有人写入后，再下线" type="button" onclick="program('${brokerStat.brokerAddr}', 'program${i}')" class="btn btn-xs btn-danger" data-target="#nowriteModal${i}" data-toggle="modal"><i class="fas fa-ban"></i></button>
+									<#else>
+										<button title="恢复写入" type="button" onclick="program('${brokerStat.brokerAddr}', 'program${i}')" class="btn btn-xs btn-success" data-target="#nowriteModal${i}" data-toggle="modal"><i class="fas fa-ban"></i></button>
+									</#if>
 									<#if brokerStat.brokerId == "0">
-										<#if brokerStat.writable>
-											<button title="禁止客户端写入，broker下线前需要先禁止写入，等没有人写入后，再下线" type="button" onclick="program('${brokerStat.brokerAddr}', 'program${i}')" class="btn btn-xs btn-danger" data-target="#nowriteModal${i}" data-toggle="modal"><i class="fas fa-ban"></i></button>
-										<#else>
-											<button title="恢复写入" type="button" onclick="program('${brokerStat.brokerAddr}', 'program${i}')" class="btn btn-xs btn-success" data-target="#nowriteModal${i}" data-toggle="modal"><i class="fas fa-ban"></i></button>
-										</#if>
 										<button title="已经停写的broker，可以关闭" type="button" class="btn btn-xs btn-danger" data-target="#brokerOfflineModal${i}" onclick="program('${brokerStat.brokerAddr}', 'brokerOfflineProgram${i}')" data-toggle="modal"><i class="fas fa-power-off"></i></button>
 										<div class="d-inline-flex">
 											<button title="增加slave" type="button" class="btn btn-xs btn-primary"  onclick="addBroker('${key}', '${brokerStat.version}')" data-target="#addBrokerModal" data-toggle="modal"><span class="fas fa-plus" aria-hidden="true"></span></button>
@@ -315,8 +315,8 @@
 					</div>
 				</div>
 			</#if>
-			<#if brokerStat.version?? && brokerStat.brokerId == "0">
-				<!-- 停写 -->
+			<#if brokerStat.version??>
+			<!-- 停写 -->
 			<div id="nowriteModal${i}" class="modal fade" tabindex="-1" data-width="400">
 				<div class="modal-dialog modal-xl">
 					<div class="modal-content">
@@ -350,14 +350,15 @@
 							<div class="modal-footer">
 								<button type="button" data-dismiss="modal" class="btn btn-light" >取消</button>
 								<#if brokerStat.writable>
-								<button type="button" class="btn btn-primary" onclick="nowrite('nowrite${i}')" id="nowrite${i}Btn">确定</button>
+									<button type="button" class="btn btn-primary" onclick="nowrite('nowrite${i}')" id="nowrite${i}Btn">确定</button>
 								<#else>
-								<button type="button" class="btn btn-primary" onclick="resumeWrite('nowrite${i}')" id="nowrite${i}Btn">确定</button>
-							</#if>
+									<button type="button" class="btn btn-primary" onclick="resumeWrite('nowrite${i}')" id="nowrite${i}Btn">确定</button>
+								</#if>
+							</div>
+						</form>
 					</div>
-					</form>
 				</div>
-			</div></div>
+			</div>
 			</#if>
 			<!-- 下线 -->
 			<div id="brokerOfflineModal${i}" class="modal fade" tabindex="-1" data-width="400">
@@ -1262,7 +1263,6 @@
 		</div>
 	</div>
 </div>
-
 <script>
 var brokerAutoUpdateId;
 $(function () {
@@ -2200,7 +2200,7 @@ function modifyBrokerConfig(isCluster){
 				needReboot = true;
 			}
 			tip += optionName + "修改为" + nowValue + "\n";
-			configParam += $(this).attr("name") + ":" + nowValue + ";";
+			configParam += $(this).attr("name") + "=" + nowValue + "&";
 		}
 	})
 	if (fileReservedTime.length > 0 || timerRollWindowSlot.length > 0) {
@@ -2234,7 +2234,7 @@ function modifyBrokerConfig(isCluster){
 				needReboot = true;
 			}
 			tip += $(this).attr("name") + "修改为" + nowValue + "\n";
-			configParam += $(this).attr("name") + ":" + nowValue + ";";
+			configParam += $(this).attr("name") + "=" + nowValue + "&";
 		}
 	})
 	if(tip){

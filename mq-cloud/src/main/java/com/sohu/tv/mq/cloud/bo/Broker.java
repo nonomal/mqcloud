@@ -35,7 +35,11 @@ public class Broker extends DeployableComponent {
     private long size7d;
     // 版本
     private String version;
-    
+
+    private boolean controllerEnabled;
+
+    private boolean deployedOnPhysicalMachine;
+
     public int getBrokerID() {
         return brokerID;
     }
@@ -159,6 +163,22 @@ public class Broker extends DeployableComponent {
     @Override
     public String getComponentName() {
         return brokerName + ":" + (isMaster() ? "master" : "slave-" + brokerID);
+    }
+
+    public boolean isControllerEnabled() {
+        return controllerEnabled;
+    }
+
+    public void setControllerEnabled(boolean controllerEnabled) {
+        this.controllerEnabled = controllerEnabled;
+    }
+
+    public boolean isDeployedOnPhysicalMachine() {
+        return deployedOnPhysicalMachine;
+    }
+
+    public void setDeployedOnPhysicalMachine(boolean deployedOnPhysicalMachine) {
+        this.deployedOnPhysicalMachine = deployedOnPhysicalMachine;
     }
 
     @Override

@@ -1,0 +1,69 @@
+<#if response.OK>
+    <#list response.result as key, value>
+        <tr>
+            <td>${key}:${value.masterBrokerId!}</td>
+            <td>${value.masterAddress!}</td>
+            <td>${value.masterEpoch!}:${value.syncStateSetEpoch!}</td>
+            <td>
+                <table class="table table-sm table-striped text-sm border" style="margin-top: 0px">
+                    <thead>
+                    <tr>
+                        <th>broker:id</th>
+                        <th>地址</th>
+                        <th>同步</th>
+                        <th>存活</th>
+                    </tr>
+                    </thead>
+                    <#if value.inSyncReplicas??>
+                        <#list value.inSyncReplicas as replica>
+                            <tr>
+                                <td>${replica.brokerName!}:${replica.brokerId!}</td>
+                                <td>${replica.brokerAddress!}</td>
+                                <td>是</td>
+                                <td>
+                                    <#if replica.alive??>
+                                        <#if replica.alive>
+                                            是
+                                        <#else>
+                                            <button type="button" class="btn btn-danger btn-xs" onclick="cleanControllerBrokerData('${controllerAddr}', '${replica.brokerName!}', ${replica.brokerId!})"><span class="fas fa-trash-alt" ></span></button>
+                                        </#if>
+                                    <#else>
+                                        未知
+                                    </#if>
+                                </td>
+                            </tr>
+                        </#list>
+                    </#if>
+                    <#if value.notInSyncReplicas??>
+                        <#list value.notInSyncReplicas as replica>
+                            <tr>
+                                <td>${replica.brokerName!}:${replica.brokerId!}</td>
+                                <td>${replica.brokerAddress!}</td>
+                                <td>否</td>
+                                <td>
+                                    <#if replica.alive??>
+                                        <#if replica.alive>
+                                            是
+                                        <#else>
+                                            <button type="button" class="btn btn-danger btn-xs" onclick="cleanControllerBrokerData('${controllerAddr}', '${replica.brokerName!}', ${replica.brokerId!})"><span class="fas fa-trash-alt" ></span></button>
+                                        </#if>
+                                    <#else>
+                                        未知
+                                    </#if>
+                                </td>
+                            </tr>
+                        </#list>
+                    </#if>
+                    <#if !value.inSyncReplicas?? && !value.notInSyncReplicas??>
+                        <tr><td colspan="4">暂无数据</td></tr>
+                    </#if>
+                </table>
+            </td>
+            <td>
+                <button type="button" class="btn btn-danger btn-xs" onclick="cleanControllerBrokerData('${controllerAddr}', '${key}', -1)"><span class="fas fa-trash-alt" ></span></button>
+            </td>
+        </tr>
+    </#list>
+<#else>
+    <tr class="no_more_data"><td colspan=5 class="text-center">暂无数据</td></tr>
+</#if>

@@ -32,16 +32,6 @@ public class BrokerStartAction extends BrokerAction {
     }
 
     @Override
-    protected int stepCheckStatusWaitSeconds() {
-        return 10;
-    }
-
-    @Override
-    protected int stepCheckStatusContinuousOKTimes() {
-        return 2;
-    }
-
-    @Override
     protected Action getAction() {
         return Action.START;
     }

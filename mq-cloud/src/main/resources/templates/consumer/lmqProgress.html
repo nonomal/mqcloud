@@ -358,7 +358,7 @@
             </div>
             <#if pagination.OK && pagination.result.totalPages gt 1>
                 <div class="card-footer clearfix">
-                    <ul id="pagination" data-url="${request.contextPath}/user/topic/${RequestParameters.tid}/detail?tab=lmqConsume" style="float:right"></ul>
+                    <ul id="pagination" data-url="${request.contextPath}/user/topic/${RequestParameters.tid}/detail?tab=lmqConsume<#if RequestParameters.liteTopic??>&liteTopic=${RequestParameters.liteTopic}</#if><#if RequestParameters.lmqConsumer??>&lmqConsumer=${RequestParameters.lmqConsumer}</#if>" style="float:right"></ul>
                 </div>
             </#if>
         </div>

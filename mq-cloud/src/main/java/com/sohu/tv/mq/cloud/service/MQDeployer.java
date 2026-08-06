@@ -483,8 +483,10 @@ public class MQDeployer {
             param.remove("jRaftControllerRPCAddr");
         }
         String ip = param.remove("ip").toString();
-        String absoluteDir = param.remove("dir").toString();
+        String absoluteDir = param.get("dir").toString();
         String absoluteConfig = absoluteDir + "/" + CONFIG_FILE;
+        // add configStorePath
+        param.put("configStorePath", absoluteConfig);
         String mqConf = map2String(param);
         String mqConfCommand = "echo -e \"" + mqConf + "\" > " + absoluteConfig;
         String runFileCommand = buildControllerRunFileCommand(param);
@@ -955,17 +957,15 @@ public class MQDeployer {
 
     /**
      * shutdown
-     * @param ip
-     * @return
      */
-    public Result<?> shutdown(String ip, int port){
-        return shutdown(ip, port, null);
+    public Result<?> shutdown(String ip, int port) {
+        return shutdown(ip, port, true);
     }
-    
+
     /**
      * shutdown
      */
-    public Result<?> shutdown(String ip, int port, String baseDir){
+    public Result<?> shutdown(String ip, int port, boolean waitForShutdown) {
         SSHResult sshResult = null;
         try {
             sshResult = sshTemplate.execute(ip, new SSHCallback() {
@@ -979,38 +979,63 @@ public class MQDeployer {
             return Result.getWebErrorResult(e);
         }
         Result<?> result = wrapSSHResult(sshResult);
-        if (baseDir != null && result.isOK()) {
+        if (waitForShutdown && result.isOK()) {
             int pid = NumberUtils.toInt(String.valueOf(result.getResult()), 0);
             if (pid == 0) {
-                logger.error("cant shutdown, ip:{}, port:{}, baseDir:{} result:{}", ip, port, baseDir, result.getResult());
-                return Result.getResult(Status.DB_ERROR).setMessage("cant shutdown");
+                logger.error("cannot wait shutdown, ip:{}, port:{} result:{}", ip, port, result.getResult());
+                return Result.getResult(Status.DB_ERROR).setMessage("cannot wait shutdown");
             }
-            // 检测broker是否已经关闭
+            // 检测是否已经关闭
             int shutdownTimes = 0;
-            for (int i = 0; i < 20; ++i) {
+            for (int i = 0; i < 30; ++i) {
                 Result<?> pidResult = isPidDead(ip, pid);
                 if (pidResult.isOK()) {
                     // 连续两次检测到关闭才算成功
                     if (++shutdownTimes >= 2) {
-                        logger.info("shutdown ok, ip:{}, port:{}, baseDir:{}, times:{}, result:{}", ip, port, baseDir, i, pid);
+                        logger.info("shutdown ok, ip:{}, port:{}, times:{}, result:{}", ip, port, i, pid);
                         break;
                     } else {
-                        logger.info("shutdown detected, ip:{}, port:{}, baseDir:{}, times:{}, result:{}", ip, port, baseDir, i, pid);
+                        logger.info("shutdown detected, ip:{}, port:{}, times:{}, result:{}", ip, port, i, pid);
                     }
                 } else {
                     shutdownTimes = 0;
                 }
                 try {
-                    logger.info("shutting down, ip:{}, port:{}, baseDir:{}, times:{}, result:{}", ip, port, baseDir, i, pidResult.getMessage());
-                    Thread.sleep(3000);
+                    logger.info("shutting down, ip:{}, port:{}, times:{}, result:{}", ip, port, i, pidResult.getMessage());
+                    Thread.sleep(2000);
                 } catch (InterruptedException e) {
                     break;
                 }
             }
-            if (abortFileNotExist(ip, baseDir)) {
-                return Result.getOKResult();
+        }
+        return result;
+    }
+
+    /**
+     * shutdown broker
+     */
+    public Result<?> shutdownBroker(String ip, int port, String baseDir) {
+        return shutdownBroker(ip, port, baseDir, false);
+    }
+
+    /**
+     * shutdown broker
+     */
+    public Result<?> shutdownBroker(String ip, int port, String baseDir, boolean needCleanEpochFileCheckpoint) {
+        Result<?> result = shutdown(ip, port, baseDir != null);
+        if (baseDir != null && result.isOK()) {
+            // 清理EpochFileCheckpoint文件
+            if (needCleanEpochFileCheckpoint) {
+                Result<?> cleanResult = delete(ip, baseDir + "/data/epochFileCheckpoint*");
+                if (!cleanResult.isOK()) {
+                    logger.error("clean epochFileCheckpoint failed, ip:{}, baseDir:{}, result:{}", ip, baseDir, cleanResult);
+                    return cleanResult;
+                }
             }
-            return Result.getResult(Status.DB_ERROR).setMessage("abort file exist");
+            // 安全关闭后abort文件应该被删除，如果还存在说明没有正常关闭
+            if (!abortFileNotExist(ip, baseDir)) {
+                return Result.getResult(Status.DB_ERROR).setMessage("abort file exist");
+            }
         }
         return result;
     }

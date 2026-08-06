@@ -22,13 +22,25 @@ public class RocketMQDelayMessageTest {
         RocketMQProducer rocketMQProducer = TestUtil.buildProducer(producer, topic);
         rocketMQProducer.start();
 
-        MessageDelayLevel[] levels = {MessageDelayLevel.LEVEL_30_SECONDS, MessageDelayLevel.LEVEL_1_MINUTE, MessageDelayLevel.LEVEL_2_MINUTES};
-        for (MessageDelayLevel messageDelayLevel: levels) {
-            Video video = new Video(messageDelayLevel.getLevel(), "msg" + messageDelayLevel);
-            MQMessage<?> mqMessage = MQMessage.build(video).setDelayTimeLevel(messageDelayLevel.getLevel());
-            Result<SendResult> sendResult = rocketMQProducer.send(mqMessage);
-            Assert.assertTrue(sendResult.isSuccess());
-            Thread.sleep(1000);
+        MessageDelayLevel[] levels = {
+                MessageDelayLevel.LEVEL_30_SECONDS,
+                MessageDelayLevel.LEVEL_1_MINUTE,
+                MessageDelayLevel.LEVEL_2_MINUTES,
+                MessageDelayLevel.LEVEL_3_MINUTES,
+                MessageDelayLevel.LEVEL_4_MINUTES,
+                MessageDelayLevel.LEVEL_5_MINUTES,
+                MessageDelayLevel.LEVEL_6_MINUTES,
+                MessageDelayLevel.LEVEL_7_MINUTES,
+        };
+        int count = 0;
+        for(int i = 1; i <= 300000; ++i) {
+            for (MessageDelayLevel messageDelayLevel: levels) {
+                Video video = new Video(messageDelayLevel.getLevel(), "msg" + messageDelayLevel);
+                MQMessage<?> mqMessage = MQMessage.build(video).setDelayTimeLevel(messageDelayLevel.getLevel());
+                Result<SendResult> sendResult = rocketMQProducer.send(mqMessage);
+                ++count;
+            }
+            Thread.sleep(1);
         }
         rocketMQProducer.shutdown();
     }
@@ -41,7 +53,6 @@ public class RocketMQDelayMessageTest {
         rocketMQConsumer.setConsumerCallback(new ConsumerCallback<String, MessageExt>() {
             public void call(String t, MessageExt k) throws Exception {
                 counter.incrementAndGet();
-                System.out.println("msg:" + t + ",msgExt:" + k);
             }
         });
         rocketMQConsumer.start();

@@ -34,11 +34,6 @@ public class BrokerRecoverWriteAction extends BrokerAction {
     }
 
     @Override
-    protected int stepCheckStatusContinuousOKTimes() {
-        return 3;
-    }
-
-    @Override
     protected Action getAction() {
         return Action.RECOVER_WRITE;
     }

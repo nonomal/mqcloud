@@ -1456,5 +1456,9 @@ CREATE TABLE `broker_auto_update_step`
     `info`                  text COMMENT '操作信息',
     `start_time`            timestamp NULL DEFAULT NULL COMMENT '开始时间',
     `end_time`              timestamp NULL DEFAULT NULL COMMENT '结束时间',
+    `controller_enabled`    int(4) NOT NULL DEFAULT '0' COMMENT '0:没有启用controller,1:启用了controller',
+    `status_check_ok_count` int(11) NOT NULL DEFAULT '-1' COMMENT '状态检查为成功的次数',
+    `status_check_max_count` int(11) NOT NULL DEFAULT '-1' COMMENT '状态检查最大次数，超过则认为失败',
+    `status_check_interval` int(11) NOT NULL DEFAULT '-1' COMMENT '状态检查间隔，单位秒',
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='broker自动更新步骤表';

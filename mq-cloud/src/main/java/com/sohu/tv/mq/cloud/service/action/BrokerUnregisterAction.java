@@ -21,7 +21,7 @@ public class BrokerUnregisterAction extends BrokerAction {
         BrokerConfigUpdateParam brokerConfigUpdateParam = new BrokerConfigUpdateParam();
         brokerConfigUpdateParam.setCid(step.getCid());
         brokerConfigUpdateParam.setAddr(step.getBrokerAddr());
-        brokerConfigUpdateParam.setConfig("registerBroker:false;");
+        brokerConfigUpdateParam.setConfig("registerBroker=false");
         return brokerService.updateBrokerConfig(brokerConfigUpdateParam);
     }
 
@@ -33,19 +33,14 @@ public class BrokerUnregisterAction extends BrokerAction {
             return result;
         }
         int producerConnectionSize = result.getResult().getProducerConnectionSize();
-        if(producerConnectionSize > 0) {
+        if (producerConnectionSize > 0) {
             return Result.getErrorResult("producer connection size:" + producerConnectionSize);
         }
         int consumerConnectionSize = result.getResult().getConsumerConnectionSize();
-        if(consumerConnectionSize > 0) {
+        if (consumerConnectionSize > 0) {
             return Result.getErrorResult("consumer connection size:" + consumerConnectionSize);
         }
         return Result.getOKResult().setMessage("no connection");
-    }
-
-    @Override
-    protected int stepCheckStatusContinuousOKTimes() {
-        return 2;
     }
 
     @Override

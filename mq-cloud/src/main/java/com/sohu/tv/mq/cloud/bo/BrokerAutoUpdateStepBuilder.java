@@ -95,12 +95,22 @@ public class BrokerAutoUpdateStepBuilder {
      */
     private void addBrokerUpdateStepWithMaster(List<Broker> brokers) {
         Broker master = brokers.get(0);
+        if (!master.isControllerEnabled()) {
+            addCommonBrokerUpdateStepWithMaster(brokers);
+        } else {
+            addBrokerUpdateStepWithController(brokers);
+        }
+    }
+
+    /**
+     * 添加有master的broker的更新步骤
+     */
+    private void addCommonBrokerUpdateStepWithMaster(List<Broker> brokers) {
+        Broker master = brokers.get(0);
         // master停写
         addBrokerAutoUpdateStep(master, STOP_WRITE);
         // 更新所有slave
-        for (int i = 1; i < brokers.size(); ++i) {
-            addCommonBrokerUpdateStep(brokers.get(i));
-        }
+        addSlaveBrokerUpdateStep(brokers);
         // master取消注册
         addBrokerAutoUpdateStep(master, UNREGISTER);
         // master更新
@@ -111,7 +121,77 @@ public class BrokerAutoUpdateStepBuilder {
         addBrokerAutoUpdateStep(master, RECOVER_WRITE);
     }
 
-    private void addBrokerAutoUpdateStep(Broker broker, Action action) {
-        steps.add(BrokerAutoUpdateStep.build(steps.size(), broker, action));
+    /**
+     * 添加有master的broker的更新步骤-启用了controller选主的场景
+     */
+    private void addBrokerUpdateStepWithController(List<Broker> brokers) {
+        Broker master = brokers.get(0);
+        // master停写
+        addBrokerAutoUpdateStep(master, STOP_WRITE);
+        // slave停写
+        Broker slave = brokers.get(1);
+        addBrokerAutoUpdateStep(slave, SLAVE_STOP_WRITE);
+        // 更新所有slave
+        addSlaveBrokerUpdateStep(brokers);
+        // master停止定时消息写入
+        addBrokerAutoUpdateStep(master, TIMER_STOP_DEQUEUE);
+        // slave停止定时消息写入
+        addBrokerAutoUpdateStep(slave, TIMER_STOP_DEQUEUE);
+        // slave切为master
+        addBrokerAutoUpdateStep(slave, SWITCH_TO_MASTER);
+        // master更新
+        addCommonBrokerUpdateStep(master);
+        if (master.isDeployedOnPhysicalMachine()) {
+            // 切回master
+            addBrokerAutoUpdateStep(master, SWITCH_TO_MASTER);
+        } else {
+            // 不用切回master，slave此时是master，master此时是slave
+            Broker slaveTmp = slave;
+            slave = master;
+            master = slaveTmp;
+        }
+        // master恢复定时消息写入
+        addBrokerAutoUpdateStep(master, TIMER_RECOVER_DEQUEUE);
+        // slave恢复定时消息写入
+        addBrokerAutoUpdateStep(slave, TIMER_RECOVER_DEQUEUE);
+        // master恢复写入
+        addBrokerAutoUpdateStep(master, RECOVER_WRITE);
+        // slave恢复写入
+        addBrokerAutoUpdateStep(slave, SLAVE_RECOVER_WRITE);
+    }
+
+    /**
+     * 添加有master的broker的更新步骤-禁止了controller选主的场景
+     */
+    private void addBrokerUpdateStepWithForbiddenController(List<Broker> brokers) {
+        Broker master = brokers.get(0);
+        // master停写
+        addBrokerAutoUpdateStep(master, STOP_WRITE);
+        // master取消注册
+        addBrokerAutoUpdateStep(master, UNREGISTER);
+        // 暂停Controller选主
+        addBrokerAutoUpdateStep(master, DISABLE_ELECT_MASTER);
+        // master更新
+        addCommonBrokerUpdateStep(master);
+        // 恢复Controller选主
+        addBrokerAutoUpdateStep(master, ENABLE_ELECT_MASTER);
+        // master注册
+        addBrokerAutoUpdateStep(master, REGISTER);
+        // 更新所有slave
+        addSlaveBrokerUpdateStep(brokers);
+        // master恢复写入
+        addBrokerAutoUpdateStep(master, RECOVER_WRITE);
+    }
+
+    private void addSlaveBrokerUpdateStep(List<Broker> brokers) {
+        for (int i = 1; i < brokers.size(); ++i) {
+            addCommonBrokerUpdateStep(brokers.get(i));
+        }
+    }
+
+    private BrokerAutoUpdateStep addBrokerAutoUpdateStep(Broker broker, Action action) {
+        BrokerAutoUpdateStep step = BrokerAutoUpdateStep.build(steps.size(), broker, action);
+        steps.add(step);
+        return step;
     }
 }

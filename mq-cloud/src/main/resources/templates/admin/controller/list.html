@@ -24,8 +24,22 @@
 			</div>
 			<div class="btn-group">
 				<button type="button" class="btn btn-default" title="新建Controller" onclick="addController()" data-target="#addControllerModal" data-toggle="modal"><span class="fas fa-plus"></span><span class="d-none d-lg-inline">Controller</span></button>
-				<button type="button" class="btn btn-default" title="关联已有Controller到MQCloud中" data-target="#associateControllerModal" data-toggle="modal"><span class="fas fa-link"></span><span class="d-none d-lg-inline">Controller</span></button>
+				<button type="button" class="btn btn-default dropdown-toggle dropdown-hover dropdown-icon" data-toggle="dropdown">
+					<span class="sr-only">Toggle Dropdown</span>
+				</button>
+				<div class="dropdown-menu" role="menu">
+					<a class="dropdown-item" href="#" title="在增减controller后，刷新配置到controller和broker中" onclick="refresh()" data-toggle="modal"><span class="fas fa-sync-alt fa-fw"></span>&nbsp;刷新配置</a>
+					<div class="dropdown-divider"></div>
+					<a class="dropdown-item" href="#" title="关联已有Controller到MQCloud中" data-target="#associateControllerModal" data-toggle="modal"><span class="fas fa-link fa-fw"></span>&nbsp;关联Controller</a>
+					<div class="dropdown-divider"></div>
+					<a class="dropdown-item" href="#" title="查看集群中真实的节点（远程调用，非mqcloud存储）" data-target="#controllerNodeModal" onclick="viewControllerNode()" data-toggle="modal"><span class="fas fa-project-diagram fa-fw"></span>&nbsp;集群实际节点</a>
+				</div>
 			</div>
+			<#if brokerElectEnabled?? && !brokerElectEnabled>
+				<button type="button" class="btn btn-outline-warning ml-1" title="开启broker选主" data-toggle="tooltip" onclick="enableBrokerElect()"><i class="fas fa-fw fa-play"></i></button>
+			<#else>
+				<button type="button" class="btn btn-outline-danger ml-1" title="暂停broker选主" data-toggle="tooltip" onclick="disableBrokerElect()"><i class="fas fa-fw fa-pause"></i></button>
+			</#if>
 		</div>
 	</div>
 </div>
@@ -54,7 +68,7 @@
 							<td>${controller.group!}</td>
 							<td>
 								<#if controller.leader>
-									是
+									<b class="text-red">是</b>
 								<#else>
 									否
 								</#if>
@@ -74,9 +88,15 @@
 							<td>
 								<#if controller.checkStatusOK>
 									<button type="button" class="btn btn-sm btn-info" title="查看配置" data-target="#controllerConfigModal" data-toggle="modal" onclick="viewControllerConfig('${controller.addr}')"><i class="fas fa-eye"></i></button>
+									<#if !controller.leader>
+										<button title="切换为leader" type="button" class="btn btn-sm btn-warning" data-target="#switchToLeaderModal" onclick="switchToLeaderPrompt('${controller.addr}')" data-toggle="modal"><i class="fas fa-crown"></i></button>
+									<#else>
+										<button type="button" class="btn btn-sm btn-info" title="查看broker replica信息" data-toggle="tooltip" onclick="showBrokerReplicaInfo('${controller.addr}')"><i class="fas fa-adjust"></i></button>
+									</#if>
 									<button type="button" class="btn btn-sm btn-danger" title="关闭Controller进程" data-target="#controllerOfflineModal" data-toggle="modal" onclick="offlineController('${controller.addr}');"><i class="fas fa-power-off"></i></button>
 								<#else>
 									<button id="controllerBtn${controller_index}" data-toggle="tooltip" title="启动Controller" type="button" class="btn btn-sm btn-success" onclick="startupController('${controller.ip}', ${controller.port}, '${controller.baseDir!}', 'controllerBtn${controller_index}')"><i class="fas fa-power-off"></i></button>
+									<button title="在当前机器更新Controller并保留数据" type="button" class="btn btn-sm btn-success"  onclick="upgradeController('${controller.addr}', '${controller.baseDir!}')" data-target="#upgradeControllerModal" data-toggle="modal">升级</button>
 								</#if>
 								<button type="button" class="btn btn-sm btn-danger" title="删除Controller地址" data-target="#controllerDeleteModal" data-toggle="modal" onclick="deleteController('${controller.addr}');"><span class="fas fa-trash-alt" aria-hidden="true"></span></button>
 							</td>
@@ -417,10 +437,208 @@
 	</div>
 </div>
 
+<!-- node -->
+<div id="controllerNodeModal" class="modal fade" tabindex="-1" data-width="400">
+	<div class="modal-dialog modal-lg">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h4 class="modal-title">查看集群节点</h4>
+				<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+			</div>
+			<div class="modal-body">
+				<pre id="controllerNodePre"></pre>
+			</div>
+			<div class="modal-footer">
+				<button type="button" data-dismiss="modal" class="btn btn-default" >关闭</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- 升级部署Controller -->
+<div id="upgradeControllerModal" class="modal fade" tabindex="-1">
+	<div class="modal-dialog modal-xl">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h4 class="modal-title">升级Controller</h4>
+				<b  style="font-size:9px;margin-top: 13px;margin-left: 5px"><i>请提前在通用配置里rocketmqFilePath配置项, 配置好待升级的安装包地址。如需修改Controller配置,请在升级完毕后进行修改。</i></b>
+				<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+			</div>
+			<div class="modal-body">
+				<div class="sw sw-justified" id="updateController">
+					<ul class="nav nav-progress">
+						<li class="nav-item">
+							<a class="nav-link default" href="#step-1">
+								<div class="num">1</div>
+								<div style="font-size: small; font-weight: bold">备份数据</div>
+								<span style="font-size: small;color: #0b2e13;">备份原安装目录</span>
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link default" href="#step-2">
+								<div class="num">2</div>
+								<div style="font-size: small; font-weight: bold">下载安装包</div>
+								<span style="font-size: small;color: #0b2e13;">从仓库下载最新安装包到服务器/tmp下</span>
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link default" href="#step-3">
+								<div class="num">3</div>
+								<div style="font-size: small; font-weight: bold">解压</div>
+								<span style="font-size: small;color: #0b2e13;">解压到安装目录下</span>
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link default" href="#step-4">
+								<div class="num">4</div>
+								<div style="font-size: small; font-weight: bold">恢复数据</div>
+								<span style="font-size: small;color: #0b2e13;">移动备份数据和配置文件至新的安装目录</span>
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link default" href="#step-5">
+								<div class="num">5</div>
+								<div style="font-size: small; font-weight: bold">启动</div>
+								<span style="font-size: small;color: #0b2e13;">启动Controller</span>
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link default" href="#step-6">
+								<div class="num">6</div>
+								<div style="font-size: small; font-weight: bold">完成</div>
+								<span style="font-size: small;color: #0b2e13;">获取启动后的进程信息</span>
+							</a>
+						</li>
+					</ul>
+					<div class="tab-content"></div>
+				</div>
+				<form class="form-horizontal form-bordered form-row-stripped" id="upgradeController">
+					<div class="form-body">
+						<div class="form-group row justify-content-center">
+							<label class="col-form-label col-md-2"> 机器: </label>
+							<div class="col-md-5">
+								<input type="text" id="upgradeControllerAddr" name="ipAddr" class="form-control" readonly/>
+							</div>
+						</div>
+						<div class="form-group row justify-content-center">
+							<label class="col-md-2"> RocketMQ版本: </label>
+							<div class="col-md-5 checkbox-inline">
+								<label>
+									<input type="radio" name="v" value="4">4.x
+								</label>&nbsp;&nbsp;
+								<label>
+									<input type="radio" name="v" value="5" checked>5.x
+								</label>
+							</div>
+						</div>
+						<div class="form-group row justify-content-center">
+							<label class="col-form-label col-md-2"> 所属集群: </label>
+							<div class="col-md-5">
+								<input type="text" value="${selectedCluster.name}" class="form-control" readonly/>
+							</div>
+						</div>
+						<div class="form-group row justify-content-center">
+							<label class="col-form-label col-md-2"> 进程: </label>
+							<div class="col-md-5">
+								<textarea id="upgradeControllerProgramInfo" type="text" rows="1" class="form-control" readonly></textarea>
+							</div>
+						</div>
+						<div class="form-group row justify-content-center">
+							<label class="col-form-label col-md-2"> 提示: </label>
+							<div class="col-md-5">
+								<div class="form-control border-0">如果升级过程遇到错误警告，请登录服务器解决后再<b>继续</b>执行</div>
+							</div>
+						</div>
+					</div>
+					<input type="hidden" id="upgradeDir" name="dir" value=""/>
+					<input type="hidden" id="upgradeControllerIp" name="ip" value=""/>
+					<input type="hidden" id="upgradeControllerListenPort" name="listenPort" value=""/>
+				</form>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-primary" id="upgradeBtn" data-toggle="modal" onclick="upgrade('upgradeController')"><span id="upgradeControllerKey">一键升级</span></button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- 切主 -->
+<div id="switchToLeaderModal" class="modal fade" tabindex="-1" data-width="400">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h4 class="modal-title">切换确认</h4>
+				<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+			</div>
+			<div class="modal-body">
+				<div class="form-group text-center">
+					<span>确定切换 <b id="switchToLeaderInput"></b> 为leader吗?</span>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" data-dismiss="modal" class="btn btn-light" >取消</button>
+				<button type="button" class="btn btn-primary" onclick="switchToLeader()" id="switchToLeaderBtn">确定</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- broker replica信息 -->
+<div id="brokerReplicaModal" class="modal fade"  style="overflow-y: auto;">
+	<div class="modal-dialog  modal-xl">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h5 class="modal-title">集群broker replica信息</h5>
+				<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+					<span aria-hidden="true">&times;</span>
+				</button>
+			</div>
+			<div class="modal-body">
+				<div class="card mt-2">
+					<div class="card-body table-responsive p-0">
+						<table class="table table-striped text-nowrap">
+							<thead>
+							<tr>
+								<th>master:id</th>
+								<th>地址</th>
+								<th data-toggle="tooltip" title="master:sync">epoch</th>
+								<th>replica</th>
+								<th>操作</th>
+							</tr>
+							</thead>
+							<tbody id="brokerReplicaBody">
+							<tr>
+								<td colspan="6" class="text-center">暂无数据</td>
+							</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
 <script>
 
 $(function () {
+	<#if needRefreshConfig?? && needRefreshConfig>
+		alert("集群配置与实际节点不一致，请先刷新配置！");
+	</#if>
 	$('#addNewController').smartWizard({
+		selected: -1,
+		theme: 'dots',
+		justified: true,
+		autoAdjustHeight: false,
+		enableUrlHash: false,
+		backButtonSupport: false, // Enable the back button support
+		toolbar: {
+			position: 'none'
+		},
+		anchor: {
+			enableNavigation: false,
+		}
+	});
+	$('#updateController').smartWizard({
 		selected: -1,
 		theme: 'dots',
 		justified: true,
@@ -443,11 +661,11 @@ var method = "";
  */
 function install(id){
 	installId = id;
-	active_smartwizard('addNewController', 0)
 	if(!$('#'+id+'ServerSelect').val()){
 		alert("请先选择服务器");
 		return;
 	}
+	complete_smartwizard("updateController", 0);
 	if ($('input[name="controllerType"]:checked').val() == "jRaft") {
 		if (!$("#jRaftGroupId").val()) {
 			alert("请填写组名");
@@ -641,7 +859,11 @@ function config(){
         function(data){
             if(data.status == 200){
             	complete_smartwizard('addNewController', 6);
-	        	setTimeout('startup()', 1000);
+				if (confirm("配置成功，是否直接启动？")) {
+					startup();
+				} else {
+					goOn("startup");
+				}
 		    } else {
 		    	toastr.error("配置失败！"+data.message);  
 		    	warn_smartwizard('addNewController', 6);
@@ -787,15 +1009,23 @@ $('#mqClusterSelect').on('change',function(){
 $(function(){
 	// ns server select event
 	$('#controllerServerSelect').on('shown.bs.select', function(e) {
-		active("controllerServer");
+		active_smartwizard("addNewController", 0);
 	});
 	$('#controllerServerSelect').on('hidden.bs.select', function(e) {
 		if(!$('#controllerServerSelect').val()){
-			disableStep("controllerServer");
+			disable_smartwizard("addNewController", 0);
+		} else {
+			complete_smartwizard("addNewController", 0);
 		}
 	});
 	$('#controllerServerSelect').on('changed.bs.select', function(e) {
-		complete("controllerServer");
+		<#if jRaftInitConf??>
+			$("#jRaftInitConf").val('${jRaftInitConf},' + $(this).val() + ":10001");
+		</#if>
+		<#if jRaftControllerRPCAddr??>
+			$("#jRaftControllerRPCAddr").val('${jRaftControllerRPCAddr},' + $(this).val() + ":10002");
+		</#if>
+		$("#jRaftServerId").val($(this).val()+":10001");
 	});
 	$("#dir").bind('input propertychange', function () {
 		$("#controllerStorePath").val($("#dir").val() + "/data");
@@ -852,6 +1082,283 @@ function viewControllerConfig(addr) {
 					$("#controllerConfigPre").jsonViewer(data.result, {withQuotes: true, rootCollapsable: false});
 				} else {
 					$("#controllerConfigPre").html("查询失败："+data.message);
+				}
+			}, 'json');
+}
+
+function viewControllerNode() {
+	$.get('${request.contextPath}/admin/controller/node',
+			{
+				cid: ${selectedCluster.id}
+			},
+			function (data) {
+				if (data.status == 200){
+					$("#controllerNodePre").jsonViewer(data.result, {withQuotes: true, rootCollapsable: false});
+				} else {
+					$("#controllerNodePre").html("查询失败："+data.message);
+				}
+			}, 'json');
+}
+
+function enableBrokerElect() {
+	if (!confirm("确定开启broker选主？")) {
+		return;
+	}
+	switchbrokerElect(3);
+}
+
+function disableBrokerElect() {
+	if (!confirm("确定暂停broker选主？")) {
+		return;
+	}
+	switchbrokerElect(0);
+}
+
+function switchbrokerElect(count) {
+	post('${request.contextPath}/admin/controller/update/config',
+			{
+				cid: ${selectedCluster.id},
+				cluster: true,
+				config: 'electMasterMaxRetryCount=' + count
+			},
+			function (data) {
+				if (data.status == 200) {
+					toastr.success("设置成功, 系统将自动刷新");
+					reload(2000);
+				} else {
+					toastr.error("设置失败！" + data.message);
+				}
+			}, 'json');
+}
+
+function upgradeController(controllerAddr, baseDir) {
+	$("#upgradeControllerAddr").val(controllerAddr);
+	$("#upgradeControllerIp").val(controllerAddr.split(":")[0]);
+	$("#upgradeControllerListenPort").val(controllerAddr.split(":")[1]);
+	$("#upgradeDir").val(baseDir);
+}
+function disableBtn(id){
+	$("#"+id).attr("disabled", "disabled");
+}
+function enableBtn(id){
+	$("#"+id).removeAttr("disabled");
+}
+
+var upgradeId = "";
+/**
+ * 升级Controller
+ */
+function upgrade(id) {
+	upgradeId = id;
+	if($('#'+id+'Key').html() == "继续"){
+		setTimeout(method+'()', 500);
+	} else {
+		upgradeBackup();
+	}
+	disableBtn("upgradeBtn");
+}
+
+/**
+ * 升级Controller,第一步: 备份数据
+ */
+function upgradeBackup(){
+	active_smartwizard("updateController", 0);
+	$.post('${request.contextPath}/admin/deploy/backup',
+			$("#"+upgradeId).serialize(),
+			function(data){
+				if(data.status == 200){
+					complete_smartwizard("updateController", 0);
+					// 下载安装包
+					setTimeout('upgradeScp()', 1000);
+				} else {
+					toastr.error("备份数据出错！"+data.message);
+					warn_smartwizard("updateController", 0);
+					upgradeGoOn("upgradeBackup");
+				}
+			}, 'json');
+}
+
+/**
+ * 升级Controller,第二步: 下载安装包
+ */
+function upgradeScp(){
+	active_smartwizard("updateController", 1);
+	$.post('${request.contextPath}/admin/deploy/scp',
+			$("#"+upgradeId).serialize(),
+			function(data){
+				if(data.status == 200){
+					complete_smartwizard("updateController", 1);
+					// 解压文件
+					setTimeout('upgradeUnzip()', 1000);
+				} else {
+					toastr.error("下载失败！"+data.message);
+					warn_smartwizard("updateController", 1);
+					upgradeGoOn("upgradeScp");
+				}
+			}, 'json');
+}
+/**
+ * 升级Controller,第三步: 解压最新安装包到安装目录下
+ */
+function upgradeUnzip(){
+	active_smartwizard("updateController", 2);
+	$.post('${request.contextPath}/admin/deploy/unzip',
+			$("#"+upgradeId).serialize(),
+			function(data){
+				if(data.status == 200){
+					complete_smartwizard("updateController", 2);
+					// 恢复数据
+					setTimeout('upgradeRecover()', 1000);
+				} else {
+					toastr.error("解压失败！"+data.message);
+					warn_smartwizard("updateController", 2);
+					upgradeGoOn("upgradeUnzip");
+				}
+			}, 'json');
+}
+
+/**
+ * 升级Controller,第四步: 恢复数据
+ */
+function upgradeRecover(){
+	active_smartwizard("updateController", 3);
+	$.post('${request.contextPath}/admin/deploy/recover',
+			$("#"+upgradeId).serialize(),
+			function(data){
+				if(data.status == 200){
+					complete_smartwizard("updateController", 3);
+					if(confirm("升级成功，是否直接启动？")){
+						// 启动Controller
+						upgradeStartup();
+					} else {
+						upgradeGoOn("upgradeStartup");
+					}
+				} else {
+					toastr.error("恢复数据出错！"+data.message);
+					warn_smartwizard("updateController", 3);
+					upgradeGoOn("upgradeRecover");
+				}
+			}, 'json');
+}
+
+/**
+ * 升级Controller,第五步: 启动实例
+ */
+function upgradeStartup(){
+	active_smartwizard("updateController", 4);
+	$.post('${request.contextPath}/admin/deploy/startup',
+			$("#"+upgradeId).serialize(),
+			function(data){
+				if(data.status == 200){
+					complete_smartwizard("updateController", 4);
+					// 检测进程
+					setTimeout('upgradeCheckProgram()', 10000);
+				} else {
+					toastr.error("启动失败！"+data.message);
+					warn_smartwizard("updateController", 4);
+					upgradeGoOn("upgradeStartup");
+				}
+			}, 'json');
+}
+/**
+ * 升级Controller,第六步: 检测启动的进程
+ */
+function upgradeCheckProgram(){
+	active_smartwizard("updateController", 5);
+	$.post('${request.contextPath}/admin/deploy/check/program',
+			$("#"+upgradeId).serialize(),
+			function(data){
+				if(data.status == 200){
+					$("#"+upgradeId+"ProgramInfo").attr("rows", 5).html(data.result);
+					complete_smartwizard("updateController", 5);
+					alert("恭喜，升级完成啦！请及时刷新页面");
+				} else {
+					toastr.error("检查启动进程失败！"+data.message);
+					warn_smartwizard("updateController", 5);
+					upgradeGoOn("upgradeCheckProgram");
+				}
+			}, 'json');
+}
+
+/**
+ * Controller升级,继续
+ */
+function upgradeGoOn(m){
+	$("#"+upgradeId+"Key").html("继续");
+	enableBtn("upgradeBtn");
+	method = m;
+}
+
+function switchToLeaderPrompt(addr) {
+	$("#switchToLeaderInput").html(addr);
+}
+function switchToLeader() {
+	disable('switchToLeaderBtn');
+	post('${request.contextPath}/admin/controller/switchToLeader', {
+		addr: $("#switchToLeaderInput").html()
+	}, function (data) {
+		if (data.status == 200) {
+			toastr.success("操作成功！系统将自动刷新");
+			reload(3000);
+		} else {
+			toastr.error("操作失败！" + data.message);
+			enable('switchToLeaderBtn');
+		}
+	}, 'json');
+}
+function showBrokerReplicaInfo(controllerAddr) {
+	var param = {
+		cid: ${selectedCluster.id}
+	};
+	if (controllerAddr) {
+		param.addr = controllerAddr;
+	}
+	post('${request.contextPath}/admin/controller/broker/replicaInfo', param, function (data) {
+		$("#brokerReplicaBody").html(data);
+		$("#brokerReplicaModal").modal('show');
+	});
+}
+
+function cleanControllerBrokerData(controllerAddr, broker, id) {
+	if (id == -1) {
+		if (!confirm("确定从controller清除" + broker + "？")) {
+			return;
+		}
+	} else {
+		if (!confirm("确定从controller清除" + broker + ":" + id + "？")) {
+			return;
+		}
+	}
+	post('${request.contextPath}/admin/controller/broker/cleanData', {
+		cid: ${selectedCluster.id},
+		controllerAddr: controllerAddr,
+		brokerName: broker,
+		brokerId: id
+	}, function (data) {
+		if (data.status == 200) {
+			toastr.success("清除成功！");
+			showBrokerReplicaInfo(controllerAddr);
+		} else {
+			toastr.error("清除失败：" + data.message);
+		}
+	}, 'json');
+}
+
+// 将配置刷新到Controller集群和broker集群中
+function refresh() {
+	if (!confirm("你确定要刷新Controller和Broker相关配置吗?")) {
+		return;
+	}
+	post('${request.contextPath}/admin/controller/_refresh/config',
+			{
+				cid: ${selectedCluster.id}
+			},
+			function (data) {
+				if (data.status == 200) {
+					toastr.success("刷新成功，将自动刷新");
+					reload(3000);
+				} else {
+					toastr.error("刷新失败！" + data.message);
 				}
 			}, 'json');
 }

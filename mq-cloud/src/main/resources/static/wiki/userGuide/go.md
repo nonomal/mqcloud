@@ -38,7 +38,8 @@
 4. 集群id
 
    ```
-   consumer或者producer.WithInstance("pid or port"+"@集群id")
+   consumer.WithInstance(strconv.Itoa(os.Getpid())+"@集群id")
+   producer.WithInstanceName(strconv.Itoa(os.Getpid())+"@集群id")
    ```
 
    集群id就是NameServer路由地址最后的数字。注意，必须追加集群id，否则跨集群时，使用一个通道导致异常，可到[topic详情页](topic#detail)查看配置。
@@ -50,9 +51,12 @@
    ```
    p, _ := rocketmq.NewProducer(
        producer.WithGroupName("mqcloud-json-test-producer"),
-       producer.WithNsResovler(primitive.NewHttpResolver("test-cluster", "http://${mqcloudDomain}/rocketmq/nsaddr-集群id")),
+       producer.WithNsResolver(primitive.NewHttpResolver("test-cluster", "http://${mqcloudDomain}/rocketmq/nsaddr-集群id")),
+       producer.WithInstanceName(strconv.Itoa(os.Getpid())+"@集群id"),
        producer.WithRetry(2),
    )
+   如果需要发送顺序消息，还需要进行如下设置：
+   producer.WithQueueSelector(producer.NewHashQueueSelector())
    ```
 
 2. 启动
@@ -75,6 +79,7 @@
        Body:  []byte("video 123 title changed"),
    }
    msg.WithKeys([]string{"123"})
+   // 发送顺序消息需要设置 msg.WithShardingKey("orderId")
    res, err := p.SendSync(context.Background(), msg)
 
    if err != nil {
@@ -108,8 +113,11 @@
    c, _ := rocketmq.NewPushConsumer(
        consumer.WithGroupName("mqcloud-json-test-consumer"),
        consumer.WithNsResovler(primitive.NewHttpResolver("test-cluster", "http://${mqcloudDomain}/rocketmq/nsaddr-集群id")),
+       consumer.WithInstance(strconv.Itoa(os.Getpid())+"@集群id")
        consumer.WithConsumerModel(consumer.Clustering),
    )
+   如果需要顺序消费消息，还需要进行如下设置：
+   consumer.WithConsumerOrder(true)
    ```
    这里需要说明一下参数含义：
 

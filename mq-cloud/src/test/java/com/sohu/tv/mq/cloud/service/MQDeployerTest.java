@@ -81,7 +81,7 @@ public class MQDeployerTest {
     @Test
     public void testShutdown() {
         String ip = "test.mqcloud.com";
-        Result<?> rst = mqDeployer.shutdown(ip, 10911, "broker-log-13");
+        Result<?> rst = mqDeployer.shutdown(ip, 10911);
         Assert.assertEquals(true, rst.isOK());
     }
 

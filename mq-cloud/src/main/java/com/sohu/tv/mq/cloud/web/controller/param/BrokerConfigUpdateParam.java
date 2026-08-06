@@ -52,9 +52,9 @@ public class BrokerConfigUpdateParam {
 
     public Properties getConfigProperties() {
         Properties properties = new Properties();
-        String[] configs = config.split(";");
+        String[] configs = config.split("&");
         for (String cfg : configs) {
-            String[] cfgs = cfg.split(":");
+            String[] cfgs = cfg.split("=");
             properties.put(cfgs[0], cfgs[1]);
         }
         return properties;

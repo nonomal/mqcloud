@@ -1,11 +1,9 @@
 package com.sohu.tv.mq.cloud.service;
 
-import com.sohu.tv.mq.cloud.bo.Broker;
-import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdate;
-import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdateStep;
-import com.sohu.tv.mq.cloud.bo.BrokerAutoUpdateStepBuilder;
+import com.sohu.tv.mq.cloud.bo.*;
 import com.sohu.tv.mq.cloud.bo.UserWarn.WarnType;
 import com.sohu.tv.mq.cloud.service.action.BrokerActionChooser;
+import com.sohu.tv.mq.cloud.task.server.data.Server;
 import com.sohu.tv.mq.cloud.util.MQCloudConfigHelper;
 import com.sohu.tv.mq.cloud.util.Result;
 import com.sohu.tv.mq.cloud.util.Status;
@@ -58,6 +56,9 @@ public class ClusterBrokerAutoUpdateService {
     @Autowired
     private MQCloudConfigHelper mqCloudConfigHelper;
 
+    @Autowired
+    private ServerDataService serverDataService;
+
     /**
      * 保存自动更新
      */
@@ -82,8 +83,18 @@ public class ClusterBrokerAutoUpdateService {
             if (undoneResult.isNotEmpty()) {
                 return Result.getResult(Status.DB_ERROR).setMessage("存在未完成的任务");
             }
+            // 补充是否支持主从自动切换
+            List<Broker> brokerList = brokerListResult.getResult();
+            for (Broker broker : brokerList) {
+                BrokerControllerConfig config = brokerService.fetchBrokerControllerConfig(broker.getCid(), broker.getAddr());
+                broker.setControllerEnabled(config.isControllerEnabled());
+                if (broker.isControllerEnabled()) {
+                    ServerInfo server = serverDataService.queryServerInfo(broker.getIp());
+                    broker.setDeployedOnPhysicalMachine(server == null ? false : server.isPhysical());
+                }
+            }
             // 构建自动更新步骤
-            List<BrokerAutoUpdateStep> steps = BrokerAutoUpdateStepBuilder.build(brokerListResult.getResult(), action);
+            List<BrokerAutoUpdateStep> steps = BrokerAutoUpdateStepBuilder.build(brokerList, action);
             // 保存BrokerAutoUpdate
             Result<?> result = brokerAutoUpdateService.save(cid, steps);
             if (result.isNotOK()) {

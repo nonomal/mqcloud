@@ -41,8 +41,17 @@ public class BrokerAutoUpdateStep {
     // 结束时间
     private Date endTime;
 
+    private int controllerEnabled;
+
     // 集群id,冗余字段
     private int cid;
+
+    // 状态检查为成功的次数
+    private int statusCheckOkCount;
+    // 状态检查最大次数，超过则认为失败
+    private int statusCheckMaxCount;
+    // 状态检查间隔，单位秒
+    private int statusCheckInterval;
 
     public static BrokerAutoUpdateStep build(int order, Broker broker, Action action) {
         BrokerAutoUpdateStep brokerAutoUpdateStep = new BrokerAutoUpdateStep();
@@ -54,6 +63,10 @@ public class BrokerAutoUpdateStep {
         brokerAutoUpdateStep.setBrokerBaseDir(broker.getBaseDir());
         brokerAutoUpdateStep.setBrokerVersion(broker.getVersion());
         brokerAutoUpdateStep.setStatus(Status.INIT.getValue());
+        brokerAutoUpdateStep.setControllerEnabled(broker.isControllerEnabled() ? 1 : 0);
+        brokerAutoUpdateStep.setStatusCheckOkCount(action.getStatusOKCount());
+        brokerAutoUpdateStep.setStatusCheckMaxCount(action.getStatusCheckMaxCount());
+        brokerAutoUpdateStep.setStatusCheckInterval(action.getStatusCheckInterval());
         return brokerAutoUpdateStep;
     }
 
@@ -115,23 +128,43 @@ public class BrokerAutoUpdateStep {
     }
 
     public static enum Action {
-        STOP_WRITE(0, "停写"),
-        UNREGISTER(1, "取消注册"),
+        STOP_WRITE(0, "停写", 2),
+        UNREGISTER(1, "取消注册", 2),
         SHUTDOWN(2, "关闭"),
         BACKUP_DATA(3, "备份数据"),
         DOWNLOAD(4, "下载安装包"),
         UNZIP(5, "解压安装包"),
         RECOVER_DATA(6, "恢复数据"),
-        START(7, "启动"),
-        REGISTER(8, "注册"),
-        RECOVER_WRITE(9, "恢复写入"),
+        START(7, "启动", 2),
+        REGISTER(8, "注册", 2),
+        RECOVER_WRITE(9, "恢复写入", 2),
+        SLAVE_RECOVER_WRITE(10, "slave恢复写入"),
+        DISABLE_ELECT_MASTER(11, "暂停Controller选主"),
+        ENABLE_ELECT_MASTER(12, "恢复Controller选主"),
+        SWITCH_TO_MASTER(13, "切为Master"),
+        SLAVE_STOP_WRITE(14, "slave停写"),
+        TIMER_STOP_DEQUEUE(15, "暂停定时消息"),
+        TIMER_RECOVER_DEQUEUE(16, "恢复定时消息"),
         ;
         private int value;
         private String desc;
 
+        // 状态为成功的次数
+        private int statusOKCount = 1;
+        // 状态检查最大次数，超过则认为失败
+        private int statusCheckMaxCount = 15;
+        // 状态检查间隔，单位秒
+        private int statusCheckInterval = 35;
+
         Action(int value, String desc) {
             this.value = value;
             this.desc = desc;
+        }
+
+        Action(int value, String desc, int statusOKCount) {
+            this.value = value;
+            this.desc = desc;
+            this.statusOKCount = statusOKCount;
         }
 
         public int getValue() {
@@ -140,6 +173,18 @@ public class BrokerAutoUpdateStep {
 
         public String getDesc() {
             return desc;
+        }
+
+        public int getStatusOKCount() {
+            return statusOKCount;
+        }
+
+        public int getStatusCheckMaxCount() {
+            return statusCheckMaxCount;
+        }
+
+        public int getStatusCheckInterval() {
+            return statusCheckInterval;
         }
 
         public static Action valueOf(int value) {
@@ -206,6 +251,10 @@ public class BrokerAutoUpdateStep {
 
     public void setBrokerId(int brokerId) {
         this.brokerId = brokerId;
+    }
+
+    public boolean isMaster() {
+        return brokerId == 0;
     }
 
     public int getOrder() {
@@ -345,26 +394,67 @@ public class BrokerAutoUpdateStep {
         return WebUtil.timeFormat(endTime.getTime() - startTime.getTime());
     }
 
+    public int getControllerEnabled() {
+        return controllerEnabled;
+    }
+
+    public void setControllerEnabled(int controllerEnabled) {
+        this.controllerEnabled = controllerEnabled;
+    }
+
+    public boolean isEnableController() {
+        return controllerEnabled == 1;
+    }
+
     public String toSimpleString() {
         return id + ":" + order + ":" + brokerName + ":" + brokerId + ":" + brokerAddr;
     }
 
+    public int getStatusCheckOkCount() {
+        return statusCheckOkCount;
+    }
+
+    public void setStatusCheckOkCount(int statusCheckOkCount) {
+        this.statusCheckOkCount = statusCheckOkCount;
+    }
+
+    public int getStatusCheckInterval() {
+        return statusCheckInterval;
+    }
+
+    public void setStatusCheckInterval(int statusCheckInterval) {
+        this.statusCheckInterval = statusCheckInterval;
+    }
+
+    public int getStatusCheckMaxCount() {
+        return statusCheckMaxCount;
+    }
+
+    public void setStatusCheckMaxCount(int statusCheckMaxCount) {
+        this.statusCheckMaxCount = statusCheckMaxCount;
+    }
+
     @Override
     public String toString() {
-        return "{brokerName='" + brokerName + '\'' +
+        return "BrokerAutoUpdateStep{" +
+                "id=" + id +
+                ", brokerAutoUpdateId=" + brokerAutoUpdateId +
+                ", brokerAddr='" + brokerAddr + '\'' +
+                ", brokerName='" + brokerName + '\'' +
                 ", brokerId=" + brokerId +
+                ", brokerBaseDir='" + brokerBaseDir + '\'' +
+                ", brokerVersion='" + brokerVersion + '\'' +
+                ", order=" + order +
                 ", action=" + action +
                 ", status=" + status +
                 ", info='" + info + '\'' +
-                ", brokerAddr='" + brokerAddr + '\'' +
-                ", order=" + order +
-                ", id=" + id +
-                ", brokerAutoUpdateId=" + brokerAutoUpdateId +
-                ", brokerBaseDir='" + brokerBaseDir + '\'' +
-                ", brokerVersion=" + brokerVersion +
                 ", startTime=" + startTime +
                 ", endTime=" + endTime +
+                ", controllerEnabled=" + controllerEnabled +
                 ", cid=" + cid +
+                ", statusCheckOKCount=" + statusCheckOkCount +
+                ", statusCheckInterval=" + statusCheckInterval +
+                ", statusCheckMaxCount=" + statusCheckMaxCount +
                 '}';
     }
 }

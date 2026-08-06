@@ -5,7 +5,11 @@
             <td data-tooltip="true" title="版本:${brokerAutoUpdateStep.rocketMQVersion}，部署目录:${brokerAutoUpdateStep.brokerBaseDir!}"><a href="#">${brokerAutoUpdateStep.brokerName}</a></td>
             <td>${brokerAutoUpdateStep.brokerId}</td>
             <td>${brokerAutoUpdateStep.brokerAddr}</td>
-            <td>${brokerAutoUpdateStep.actionDesc}</td>
+            <#if brokerAutoUpdateStep.statusCheckOkCount gt 1>
+                <td><a href="#" title="成功状态连续${brokerAutoUpdateStep.statusCheckOkCount}次,最多检查${brokerAutoUpdateStep.statusCheckMaxCount}次,每次检查间隔${brokerAutoUpdateStep.statusCheckInterval}秒">${brokerAutoUpdateStep.actionDesc}</a></td>
+            <#else>
+                <td>${brokerAutoUpdateStep.actionDesc}</td>
+            </#if>
             <td class="${brokerAutoUpdateStep.statusColor}">${brokerAutoUpdateStep.statusDesc}</td>
             <td>${brokerAutoUpdateStep.startTimeDesc!}</td>
             <td>${brokerAutoUpdateStep.endTimeDesc!}</td>

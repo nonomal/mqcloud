@@ -1,7 +1,6 @@
 package com.sohu.tv.mq.cloud.dao;
 
 import com.sohu.tv.mq.cloud.bo.Controller;
-import com.sohu.tv.mq.cloud.bo.NameServer;
 import org.apache.ibatis.annotations.*;
 
 import java.util.List;
@@ -57,4 +56,10 @@ public interface ControllerDao {
      */
     @Delete("delete from controller where cid=#{cid} and addr=#{addr}")
     public Integer delete(@Param("cid") int cid, @Param("addr") String addr);
+
+    /**
+     * 查询
+     */
+    @Select("select * from controller where addr = #{addr}")
+    public Controller selectByAddr(@Param("addr") String addr);
 }

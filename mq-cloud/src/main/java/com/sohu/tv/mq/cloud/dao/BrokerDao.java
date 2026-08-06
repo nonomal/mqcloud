@@ -91,4 +91,10 @@ public interface BrokerDao {
     @Update("update broker set size_1d = size_1d + #{traffic.size1d}, size_2d = size_2d + #{traffic.size2d}, " +
             "size_3d = size_3d + #{traffic.size3d}, size_5d = size_5d + #{traffic.size5d}, size_7d = size_7d + #{traffic.size7d} where addr = #{traffic.ip}")
     public Integer updateDayCount(@Param("traffic") BrokerTraffic brokerTraffic);
+
+    /**
+     * 查询
+     */
+    @Select("select * from broker where cid = #{cid} and broker_name = #{brokerName} order by broker_id asc")
+    public List<Broker> selectBrokerByName(@Param("cid") int cid, @Param("brokerName") String brokerName);
 }

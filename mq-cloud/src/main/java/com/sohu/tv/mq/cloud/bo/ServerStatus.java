@@ -1,6 +1,7 @@
 package com.sohu.tv.mq.cloud.bo;
 
 import com.sohu.tv.mq.cloud.task.server.data.Disk.DiskUsage;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 
 import java.util.ArrayList;
@@ -237,6 +238,9 @@ public class ServerStatus {
 		List<DiskUsage> diskUsageList = new ArrayList<>();
 		String[] mountItems = dspace.split(",");
 		for (String mountItem : mountItems) {
+			if (StringUtils.isBlank(mountItem)) {
+				continue;
+			}
 			String[] items = mountItem.split(":");
 			diskUsageList.add(buildDiskUsage(items));
 		}

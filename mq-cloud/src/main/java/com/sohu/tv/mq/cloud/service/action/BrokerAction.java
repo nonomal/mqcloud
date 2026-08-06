@@ -111,7 +111,7 @@ public abstract class BrokerAction {
             return executeResult;
         }
         int okTimes = 0;
-        for (int i = 1; i <= stepCheckStatusMaxCheckTimes(); ++i) {
+        for (int i = 1; i <= step.getStatusCheckMaxCount(); ++i) {
             boolean okTimesReset = false;
             Result<?> checkResult = stepCheckStatusOK(step, executeResult);
             // 检查状态异常，直接返回
@@ -120,11 +120,11 @@ public abstract class BrokerAction {
                 return checkResult;
             }
             if (checkResult.isOK()) {
-                if (++okTimes >= stepCheckStatusContinuousOKTimes()) {
+                if (++okTimes >= step.getStatusCheckOkCount()) {
                     // 检查状态OK
                     if (okTimes > 1) {
                         logger.info("check ok, times:{}, okTimes:{}={}, [{}]", i, okTimes,
-                                stepCheckStatusContinuousOKTimes(), step.toSimpleString());
+                                step.getStatusCheckOkCount(), step.toSimpleString());
                     }
                     return Result.getOKResult();
                 }
@@ -142,13 +142,13 @@ public abstract class BrokerAction {
             // 保存检查状态信息
             logAndSaveCheckStatusInfo(checkResult, i, okTimes, step, okTimesReset);
             try {
-                TimeUnit.SECONDS.sleep(stepCheckStatusWaitSeconds());
+                TimeUnit.SECONDS.sleep(step.getStatusCheckInterval());
             } catch (InterruptedException e) {
                 logger.error("sleep interrupted", e);
             }
         }
-        saveCheckStatusInfo(step, "check status failed, times:" + stepCheckStatusContinuousOKTimes());
-        return Result.getErrorResult("check status times:" + stepCheckStatusMaxCheckTimes() + " failed");
+        saveCheckStatusInfo(step, "check status failed, times:" + step.getStatusCheckMaxCount());
+        return Result.getErrorResult("check status times:" + step.getStatusCheckMaxCount() + " failed");
     }
 
     /**
@@ -160,9 +160,9 @@ public abstract class BrokerAction {
             okTimeResetFlag = "[okTimeReset]";
         }
         logger.info("check result" + okTimeResetFlag + ":{}, times:{}, okTimes:{}<{}, [{}]",
-                checkResult.getErrorMessage(), i, okTimes, stepCheckStatusContinuousOKTimes(), step.toSimpleString());
+                checkResult.getErrorMessage(), i, okTimes, step.getStatusCheckOkCount(), step.toSimpleString());
         saveCheckStatusInfo(step, "check result" + okTimeResetFlag + ":" + checkResult.getErrorMessage() + ", times:" + i
-                + ", okTimes:" + okTimes + "<" + stepCheckStatusContinuousOKTimes());
+                + ", okTimes:" + okTimes + "<" + step.getStatusCheckOkCount());
     }
 
     /**
@@ -180,28 +180,6 @@ public abstract class BrokerAction {
      */
     protected Result<?> stepCheckStatusOK(BrokerAutoUpdateStep step, Result<?> executeResult) {
         return Result.getOKResult();
-    }
-
-    /**
-     * 步骤检查状态时间等待
-     */
-    protected int stepCheckStatusWaitSeconds() {
-        return 35;
-    }
-
-    /**
-     * 步骤检查状态连续OK次数
-     */
-    protected int stepCheckStatusContinuousOKTimes() {
-        return 1;
-    }
-
-    /**
-     * 步骤检查状态最大检测次数
-     * @return
-     */
-    protected int stepCheckStatusMaxCheckTimes() {
-        return 100;
     }
 
     /**

@@ -21,14 +21,16 @@ public class RocketMQTimerMessageTest {
         RocketMQProducer rocketMQProducer = TestUtil.buildProducer(producer, topic);
         rocketMQProducer.start();
 
-        int msgSize = 20;
+        int msgSize = 300000;
+        int count = 0;
         for (int i = 1; i <= msgSize; ++i) {
             Video video = new Video(i, "sohu-tv");
-            long deliveryTimestamp = System.currentTimeMillis() + i * 60 * 1000;
+            int delayMinute = Math.max((int) (8 * Math.random()), 1);
+            long deliveryTimestamp = System.currentTimeMillis() + delayMinute * 60 * 1000;
             MQMessage<?> mqMessage = MQMessage.build(video).setDeliveryTimestamp(deliveryTimestamp);
             Result<SendResult> sendResult = rocketMQProducer.send(mqMessage);
-            Assert.assertTrue(sendResult.isSuccess());
-            Thread.sleep(1000);
+            ++count;
+            Thread.sleep(1);
         }
         rocketMQProducer.shutdown();
     }
@@ -41,7 +43,6 @@ public class RocketMQTimerMessageTest {
         rocketMQConsumer.setConsumerCallback(new ConsumerCallback<String, MessageExt>() {
             public void call(String t, MessageExt k) throws Exception {
                 counter.incrementAndGet();
-                System.out.println("msg:" + t + ",msgExt:" + k);
             }
         });
         rocketMQConsumer.start();

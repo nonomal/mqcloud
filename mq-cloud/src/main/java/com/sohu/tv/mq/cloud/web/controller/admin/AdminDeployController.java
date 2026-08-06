@@ -1,6 +1,7 @@
 package com.sohu.tv.mq.cloud.web.controller.admin;
 
 import com.sohu.tv.mq.cloud.bo.Broker;
+import com.sohu.tv.mq.cloud.bo.BrokerControllerConfig;
 import com.sohu.tv.mq.cloud.service.BrokerService;
 import com.sohu.tv.mq.cloud.service.DataMigrationService;
 import com.sohu.tv.mq.cloud.service.MQDeployer;
@@ -278,7 +279,11 @@ public class AdminDeployController extends AdminViewController {
         // 启动
         Result<?> startupResult = mqDeployer.startup(ip, dir, port);
         if (startupResult.isOK()) {
-            brokerService.updateWritable(cid, ipAddr, true);
+            Broker broker = brokerResult.getResult();
+            if (broker.isMaster()) {
+                brokerService.addWritePerm(broker);
+                logger.info("addr:{} add write perm", broker.getAddr());
+            }
             if (cid != 0) {
                 brokerService.deleteBrokerTmp(cid, ipAddr);
             }
@@ -312,13 +317,16 @@ public class AdminDeployController extends AdminViewController {
             return brokerResult;
         }
         Broker broker = brokerResult.getResult();
-        if (broker.isMaster() && broker.isWritable()) {
-            return Result.getResult(Status.BROKER_SHOULD_STOP_WRITE);
+        if (broker.isMaster()) {
+            if (broker.isWritable()) {
+                return Result.getResult(Status.BROKER_SHOULD_STOP_WRITE);
+            }
+        } else {
+            BrokerControllerConfig config = brokerService.fetchBrokerControllerConfig(broker.getCid(), broker.getAddr());
+            broker.setControllerEnabled(config.isControllerEnabled());
         }
-        Result<?> shutdownResult = mqDeployer.shutdown(ip, port, broker.getBaseDir());
-        if (shutdownResult.isOK() && broker.isWritable()) {
-            brokerService.updateWritable(cid, addr, false);
-        }
+        boolean cleanEpochFile = broker.isControllerEnabled() && !broker.isMaster();
+        Result<?> shutdownResult = mqDeployer.shutdownBroker(ip, port, broker.getBaseDir(), cleanEpochFile);
         return shutdownResult;
     }
 

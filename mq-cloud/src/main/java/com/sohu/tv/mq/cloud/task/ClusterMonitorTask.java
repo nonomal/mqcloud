@@ -64,6 +64,11 @@ public class ClusterMonitorTask {
         long start = System.currentTimeMillis();
         List<ClusterStat> clusterStatList = new ArrayList<>();
         for (Cluster mqCluster : clusterService.getAllMQCluster()) {
+            // 更新期间不再执行监控任务
+            if (mqCluster.isBrokerUpdating()) {
+                logger.info("cluster:{} monitor is pausing", mqCluster.getName());
+                continue;
+            }
             ClusterStat clusterStat = monitorNameServer(mqCluster);
             if (clusterStat != null) {
                 clusterStatList.add(clusterStat);
@@ -263,6 +268,11 @@ public class ClusterMonitorTask {
         long start = System.currentTimeMillis();
         List<ClusterStat> clusterStatList = new ArrayList<>();
         for (Cluster mqCluster : clusterService.getAllMQCluster()) {
+            // 更新期间不再执行监控任务
+            if (mqCluster.isBrokerUpdating()) {
+                logger.info("cluster:{} monitor is pausing", mqCluster.getName());
+                continue;
+            }
             ClusterStat clusterStat = monitorController(mqCluster);
             if (clusterStat != null) {
                 clusterStatList.add(clusterStat);
@@ -316,6 +326,11 @@ public class ClusterMonitorTask {
         long start = System.currentTimeMillis();
         List<ClusterStat> clusterStatList = new ArrayList<>();
         for (Cluster mqCluster : clusterService.getAllMQCluster()) {
+            // 更新期间不再执行监控任务
+            if (mqCluster.isBrokerUpdating()) {
+                logger.info("cluster:{} monitor is pausing", mqCluster.getName());
+                continue;
+            }
             ClusterStat clusterStat = monitorProxy(mqCluster);
             if (clusterStat != null) {
                 clusterStatList.add(clusterStat);

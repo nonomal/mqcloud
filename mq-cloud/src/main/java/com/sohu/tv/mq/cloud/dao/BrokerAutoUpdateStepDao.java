@@ -19,9 +19,9 @@ public interface BrokerAutoUpdateStepDao {
     /**
      * 保存记录
      */
-    @Insert("<script>insert into broker_auto_update_step(broker_auto_update_id,broker_addr,broker_name,broker_id,broker_base_dir,broker_version,`order`,status,action) values"
+    @Insert("<script>insert into broker_auto_update_step(broker_auto_update_id,broker_addr,broker_name,broker_id,broker_base_dir,broker_version,`order`,status,action,controller_enabled,status_check_ok_count,status_check_max_count,status_check_interval) values"
             + "<foreach collection=\"steps\" item=\"step\" separator=\",\">"
-            + "(#{step.brokerAutoUpdateId},#{step.brokerAddr},#{step.brokerName},#{step.brokerId},#{step.brokerBaseDir},#{step.brokerVersion},#{step.order},#{step.status},#{step.action})"
+            + "(#{step.brokerAutoUpdateId},#{step.brokerAddr},#{step.brokerName},#{step.brokerId},#{step.brokerBaseDir},#{step.brokerVersion},#{step.order},#{step.status},#{step.action},#{step.controllerEnabled},#{step.statusCheckOkCount},#{step.statusCheckMaxCount},#{step.statusCheckInterval})"
             + "</foreach></script>")
     public Integer batchInsert(@Param("steps") List<BrokerAutoUpdateStep> step);
 

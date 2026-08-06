@@ -18,20 +18,21 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.rocketmq.client.exception.MQBrokerException;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.remoting.protocol.RemotingSysResponseCode;
+import org.apache.rocketmq.remoting.protocol.body.BrokerReplicasInfo.ReplicasInfo;
 import org.apache.rocketmq.remoting.protocol.body.BrokerStatsData;
+import org.apache.rocketmq.remoting.protocol.body.ClusterInfo;
 import org.apache.rocketmq.remoting.protocol.body.KVTable;
 import org.apache.rocketmq.remoting.protocol.body.ProducerTableInfo;
 import org.apache.rocketmq.remoting.protocol.header.controller.ElectMasterResponseHeader;
+import org.apache.rocketmq.remoting.protocol.route.BrokerData;
 import org.apache.rocketmq.tools.admin.MQAdminExt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * broker
@@ -58,6 +59,9 @@ public class BrokerService {
 
     @Autowired
     private BrokerTmpDao brokerTmpDao;
+
+    @Autowired
+    private ControllerService controllerService;
 
     /**
      * 查询集群的broker
@@ -140,11 +144,30 @@ public class BrokerService {
         return Result.getResult(result);
     }
 
+    public BrokerControllerConfig fetchBrokerControllerConfig(int cid, String brokerAddr) {
+        Cluster cluster = clusterService.getMQClusterById(cid);
+        return fetchBrokerControllerConfig(cluster, brokerAddr);
+    }
+
+    public BrokerControllerConfig fetchBrokerControllerConfig(Cluster cluster, String brokerAddr) {
+        BrokerControllerConfig brokerControllerConfig = new BrokerControllerConfig();
+        Properties config = fetchBrokerConfig(cluster, brokerAddr).getResult();
+        if (config == null) {
+            return brokerControllerConfig;
+        }
+        if ("true".equals(config.getProperty("enableControllerMode"))) {
+            brokerControllerConfig.setControllerEnabled(true);
+            brokerControllerConfig.setBrokerId(NumberUtils.toInt(config.getProperty("brokerId"), -1));
+            brokerControllerConfig.setControllerAddr(config.getProperty("controllerAddr"));
+        }
+        if ("4".equals(config.getProperty("brokerPermission"))) {
+            brokerControllerConfig.setWritable(false);
+        }
+        return brokerControllerConfig;
+    }
+
     /**
      * 抓取broker配置
-     * @param cid
-     * @param brokerAddr
-     * @return
      */
     public Result<Properties> fetchBrokerConfig(int cid, String brokerAddr) {
         Cluster cluster = clusterService.getMQClusterById(cid);
@@ -153,9 +176,6 @@ public class BrokerService {
 
     /**
      * 抓取broker配置
-     * @param cluster
-     * @param brokerAddr
-     * @return
      */
     public Result<Properties> fetchBrokerConfig(Cluster cluster, String brokerAddr) {
         return mqAdminTemplate.execute(new DefaultCallback<Result<Properties>>() {
@@ -176,14 +196,11 @@ public class BrokerService {
     }
 
     public boolean resetBrokerId(Cluster cluster, Broker broker) {
-        Properties config = fetchBrokerConfig(cluster, broker.getAddr()).getResult();
-        if (config == null) {
+        BrokerControllerConfig brokerControllerConfig = fetchBrokerControllerConfig(cluster, broker.getAddr());
+        if (!brokerControllerConfig.isControllerEnabled()) {
             return false;
         }
-        if (!"true".equals(config.get("enableControllerMode"))) {
-            return false;
-        }
-        int brokerId = NumberUtils.toInt(config.getProperty("brokerId"), -1);
+        int brokerId = brokerControllerConfig.getBrokerId();
         if (brokerId == broker.getBrokerID()) {
             return false;
         }
@@ -598,30 +615,11 @@ public class BrokerService {
      * 擦除写权限
      */
     public Result<?> wipeWritePerm(int cid, String brokerName, String brokerAddr) {
-        Result<Integer> rst = mqAdminTemplate.execute(new MQAdminCallback<Result<Integer>>() {
-            public Result<Integer> callback(MQAdminExt mqAdmin) throws Exception {
-                List<String> namesrvList = mqAdmin.getNameServerAddressList();
-                if (namesrvList == null) {
-                    return Result.getResult(Status.NO_RESULT).setMessage("namesrvList is empty");
-                }
-                int totalWipeTopicCount = 0;
-                for (String namesrvAddr : namesrvList) {
-                    int wipeTopicCount = mqAdmin.wipeWritePermOfBroker(namesrvAddr, brokerName);
-                    totalWipeTopicCount += wipeTopicCount;
-                }
-                return Result.getResult(totalWipeTopicCount);
-            }
-
-            @Override
-            public Result<Integer> exception(Exception e) throws Exception {
-                logger.error("wipeWritePerm broker:{} err", brokerName, e);
-                return Result.getDBErrorResult(e);
-            }
-
-            public Cluster mqCluster() {
-                return clusterService.getMQClusterById(cid);
-            }
-        });
+        BrokerConfigUpdateParam brokerConfigUpdateParam = new BrokerConfigUpdateParam();
+        brokerConfigUpdateParam.setCid(cid);
+        brokerConfigUpdateParam.setAddr(brokerAddr);
+        brokerConfigUpdateParam.setConfig("brokerPermission=4");
+        Result<?> rst = updateBrokerConfig(brokerConfigUpdateParam);
         if (rst.isOK()) {
             updateWritable(cid, brokerAddr, false);
         }
@@ -632,34 +630,38 @@ public class BrokerService {
      * 添加写权限
      */
     public Result<?> addWritePerm(Broker broker) {
-        Result<Integer> rst = mqAdminTemplate.execute(new MQAdminCallback<Result<Integer>>() {
-            public Result<Integer> callback(MQAdminExt mqAdmin) throws Exception {
-                SohuMQAdmin sohuMQAdmin = (SohuMQAdmin) mqAdmin;
-                List<String> namesrvList = mqAdmin.getNameServerAddressList();
-                if (namesrvList == null) {
-                    return Result.getResult(Status.NO_RESULT).setMessage("namesrvList is empty");
-                }
-                int count = 0;
-                for (String namesrvAddr : namesrvList) {
-                    if (broker.isRocketMQV5()) {
-                        count += sohuMQAdmin.addWritePermOfBroker(namesrvAddr, broker.getBrokerName());
-                    } else {
+        Result<?> rst = null;
+        if (broker.isRocketMQV5()) {
+            BrokerConfigUpdateParam brokerConfigUpdateParam = new BrokerConfigUpdateParam();
+            brokerConfigUpdateParam.setCid(broker.getCid());
+            brokerConfigUpdateParam.setAddr(broker.getAddr());
+            brokerConfigUpdateParam.setConfig("brokerPermission=6");
+            rst = updateBrokerConfig(brokerConfigUpdateParam);
+        } else {
+            rst = mqAdminTemplate.execute(new MQAdminCallback<Result<Integer>>() {
+                public Result<Integer> callback(MQAdminExt mqAdmin) throws Exception {
+                    SohuMQAdmin sohuMQAdmin = (SohuMQAdmin) mqAdmin;
+                    List<String> namesrvList = mqAdmin.getNameServerAddressList();
+                    if (namesrvList == null) {
+                        return Result.getResult(Status.NO_RESULT).setMessage("namesrvList is empty");
+                    }
+                    for (String namesrvAddr : namesrvList) {
                         sohuMQAdmin.unregisterBroker(namesrvAddr, mqCluster().getName(), broker.getAddr(), broker.getBrokerName(), broker.getBrokerID());
                     }
+                    return Result.getOKResult();
                 }
-                return Result.getResult(count);
-            }
 
-            @Override
-            public Result<Integer> exception(Exception e) throws Exception {
-                logger.error("addWritePerm {} err", broker, e);
-                return Result.getDBErrorResult(e);
-            }
+                @Override
+                public Result<Integer> exception(Exception e) throws Exception {
+                    logger.error("addWritePerm {} err", broker, e);
+                    return Result.getDBErrorResult(e);
+                }
 
-            public Cluster mqCluster() {
-                return clusterService.getMQClusterById(broker.getCid());
-            }
-        });
+                public Cluster mqCluster() {
+                    return clusterService.getMQClusterById(broker.getCid());
+                }
+            });
+        }
         if (rst.isOK()) {
             updateWritable(broker.getCid(), broker.getAddr(), true);
         }
@@ -689,6 +691,51 @@ public class BrokerService {
     }
 
     /**
+     * 从nameserver 拉取当前集群的broker地址
+     */
+    public Result<List<Broker>> getBrokerListFromNameServer(Cluster mqCluster) {
+        Result<List<Broker>> brokerListResult = mqAdminTemplate.execute(new MQAdminCallback<Result<List<Broker>>>() {
+            public Result<List<Broker>> callback(MQAdminExt mqAdmin) throws Exception {
+                // 获取集群信息
+                ClusterInfo clusterInfo = mqAdmin.examineBrokerClusterInfo();
+                // 获得broker地址map
+                Map<String, BrokerData> brokerAddrTable = clusterInfo.getBrokerAddrTable();
+                List<Broker> list = new ArrayList<Broker>();
+                // 遍历集群中所有的broker
+                for (String brokerName : brokerAddrTable.keySet()) {
+                    HashMap<Long, String> brokerAddrs = brokerAddrTable.get(brokerName).getBrokerAddrs();
+                    for (Long brokerId : brokerAddrs.keySet()) {
+                        Broker broker = new Broker();
+                        broker.setAddr(brokerAddrs.get(brokerId));
+                        broker.setBrokerID(brokerId.intValue());
+                        broker.setBrokerName(brokerName);
+                        list.add(broker);
+                    }
+                }
+                return Result.getResult(list);
+            }
+
+            public Cluster mqCluster() {
+                return mqCluster;
+            }
+
+            public Result<List<Broker>> exception(Exception e) throws Exception {
+                logger.error("cluster:{} err", mqCluster(), e);
+                return Result.getWebErrorResult(e);
+            }
+        });
+        return brokerListResult;
+    }
+
+    /**
+     * 切换主备
+     */
+    public Result<Boolean> switchToMaster(Broker broker) {
+        Cluster cluster = clusterService.getMQClusterById(broker.getCid());
+        return switchToMaster(cluster, broker);
+    }
+
+    /**
      * 切换主备
      */
     public Result<Boolean> switchToMaster(Cluster cluster, Broker broker) {
@@ -696,10 +743,25 @@ public class BrokerService {
         Properties properties = fetchBrokerConfig(cluster, brokerAddr).getResult();
         String controllerAddr = properties.getProperty("controllerAddr").split(";")[0];
         long brokerId = NumberUtils.toLong(properties.getProperty("brokerId"));
+        if (brokerId == 0) {
+            // master切换为master，需要从controller获取brokerId
+            Result<Map<String, ReplicasInfo>> brokerReplicasInfoMapResult = controllerService.getBrokerReplicasInfo(cluster, controllerAddr);
+            if (brokerReplicasInfoMapResult.isNotOK()) {
+                return (Result) brokerReplicasInfoMapResult;
+            }
+            ReplicasInfo replicasInfo = brokerReplicasInfoMapResult.getResult().get(broker.getBrokerName());
+            if (replicasInfo == null) {
+                return Result.getResult(Status.BROKER_UNSUPPORTED_ERROR).setMessage("broker " + broker.getBrokerName() + " is not in replication");
+            }
+            if (replicasInfo.getMasterAddress().equals(brokerAddr)) {
+                brokerId = replicasInfo.getMasterBrokerId();
+            }
+        }
+        long finalBrokerId = brokerId;
         return mqAdminTemplate.execute(new MQAdminCallback<Result<Boolean>>() {
             public Result<Boolean> callback(MQAdminExt mqAdmin) throws Exception {
                 ElectMasterResponseHeader response = mqAdmin.electMaster(controllerAddr, cluster.getName(),
-                        broker.getBrokerName(), brokerId).getObject1();
+                        broker.getBrokerName(), finalBrokerId).getObject1();
                 String newMasterAddr = response.getMasterAddress();
                 boolean success = brokerAddr.equals(newMasterAddr);
                 logger.info("switchToMaster broker:{} success:{}", brokerAddr, success);
@@ -716,5 +778,76 @@ public class BrokerService {
                 return cluster;
             }
         });
+    }
+
+    public Result<List<Broker>> queryBrokerByName(int cid, String brokerName) {
+        try {
+            return Result.getResult(brokerDao.selectBrokerByName(cid, brokerName));
+        } catch (Exception e) {
+            logger.error("queryBroker:{} err", brokerName, e);
+            return Result.getDBErrorResult(e);
+        }
+    }
+
+    /**
+     * 检查broker是否停写
+     */
+    public Result<?> checkBrokerStopWritable(int cid, String brokerAddr) {
+        // 检查broker是否停写
+        Result<BrokerStatsData> result = viewBrokerPutStats(cid, brokerAddr);
+        if (result.isNotOK()) {
+            // 如果查询失败，且异常是MQClientException，且异常信息包含"not exist"，说明broker上没有put stats数据，说明broker停写了
+            if (result.getException() != null && result.getException() instanceof MQClientException) {
+                String error = ((MQClientException) result.getException()).getErrorMessage();
+                if (error != null && error.contains("not exist")) {
+                    return Result.getOKResult().setMessage("put stats:0");
+                }
+            }
+            return result;
+        }
+        long putStats = result.getResult().getStatsMinute().getSum();
+        if (putStats <= 0) {
+            return Result.getOKResult().setMessage("put stats:0");
+        }
+        return Result.getErrorResult("put stats:" + putStats);
+    }
+
+
+    /**
+     * 查询同一个brokerName的其他broker
+     */
+    public Result<Broker> queryOtherBroker(int cid, String brokerName, String brokerAddr) {
+        Result<List<Broker>> brokerListResult = queryBrokerByName(cid, brokerName);
+        if (brokerListResult.isEmpty()) {
+            return (Result) brokerListResult;
+        }
+        Broker broker = brokerListResult.getResult().stream()
+                .filter(b -> !b.getAddr().equals(brokerAddr))
+                .findFirst()
+                .orElseGet(null);
+        return Result.getResult(broker);
+    }
+
+    /**
+     * 检查切主后的broker，连接数是否追上之前的broker
+     */
+    public Result<?> checkBrokerConnectionSize(Broker newBroker, Broker preBroker) {
+        Result<ClientConnectionSize> newResult = getClientConnectionSize(newBroker.getCid(), newBroker.getAddr());
+        if (newResult.isNotOK()) {
+            return newResult;
+        }
+        Result<ClientConnectionSize> preResult = getClientConnectionSize(preBroker.getCid(), preBroker.getAddr());
+        if (preResult.isNotOK()) {
+            return preResult;
+        }
+        int newConsumerConnectionSize = newResult.getResult().getConsumerConnectionSize();
+        int newProducerConnectionSize = newResult.getResult().getProducerConnectionSize();
+        int preConsumerConnectionSize = preResult.getResult().getConsumerConnectionSize();
+        int preProducerConnectionSize = preResult.getResult().getProducerConnectionSize();
+        if (newConsumerConnectionSize >= preConsumerConnectionSize && newProducerConnectionSize >= preProducerConnectionSize) {
+            return Result.getOKResult();
+        }
+        return Result.getErrorResult("conn c:" + newConsumerConnectionSize + "<" + preConsumerConnectionSize + ", p:" + newProducerConnectionSize + "<" + preProducerConnectionSize);
+
     }
 }

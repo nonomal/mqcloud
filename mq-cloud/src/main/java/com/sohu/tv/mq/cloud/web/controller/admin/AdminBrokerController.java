@@ -13,6 +13,7 @@ import com.sohu.tv.mq.cloud.web.controller.param.DataMigrationParam;
 import com.sohu.tv.mq.cloud.web.controller.param.UpdateSendMsgRateLimitParam;
 import com.sohu.tv.mq.cloud.web.vo.*;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.rocketmq.client.exception.MQBrokerException;
 import org.apache.rocketmq.common.MQVersion.Version;
 import org.apache.rocketmq.common.constant.PermName;
 import org.apache.rocketmq.common.running.RunningStats;
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.validation.Valid;
 import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * broker
@@ -84,6 +86,9 @@ public class AdminBrokerController extends AdminViewController {
     @Autowired
     private ConsumerService consumerService;
 
+    @Autowired
+    private ControllerService controllerService;
+
     @RequestMapping("/list")
     public String list(@RequestParam(name = "cid", required = false) Integer cid, Map<String, Object> map) {
         setView(map, "list");
@@ -97,7 +102,7 @@ public class AdminBrokerController extends AdminViewController {
         brokerListResult = brokerService.query(cluster.getId());
         // 数据库不存在broker列表时，从nameserver拉取
         if (brokerListResult.isNotOK()) {
-            brokerListResult = getBrokerListFromNameServer(cluster);
+            brokerListResult = brokerService.getBrokerListFromNameServer(cluster);
         }
         Map<String, List<BrokerStatVO>> brokerGroup = null;
         if (brokerListResult.isOK()) {
@@ -133,12 +138,10 @@ public class AdminBrokerController extends AdminViewController {
                             .forEach(stat -> stat.setFallbehindSize(master.getCommitLogMaxOffset() - stat.getCommitLogMaxOffset()));
                 });
                 // 排序
-                Collections.sort(brokerStatVOList, (o1, o2) -> {
-                    if (o1.getBrokerId().equals(o2.getBrokerId())) {
-                        return o1.getCreateTime().compareTo(o2.getCreateTime());
-                    }
-                    return o1.getBrokerId().compareTo(o2.getBrokerId());
-                });
+                brokerStatVOList.sort(Comparator.comparingInt((BrokerStatVO broker) -> {
+                    int id = NumberUtils.toInt(broker.getBrokerId());
+                    return id == -1 ? Integer.MAX_VALUE : id;
+                }).thenComparing(BrokerStatVO::getCreateTime));
             }
         }
         clusterInfoVO.setMqCluster(clusterService.getAllMQCluster());
@@ -152,46 +155,6 @@ public class AdminBrokerController extends AdminViewController {
         setResult(map, "messageQueryCondition", messageQueryCondition);
         setResult(map, "mqcloudDomain", mqCloudConfigHelper.getDomain());
         return view();
-    }
-
-    /**
-     * 从nameserver 拉取当前集群的broker地址
-     *
-     * @param mqCluster
-     * @return
-     */
-    private Result<List<Broker>> getBrokerListFromNameServer(Cluster mqCluster) {
-        Result<List<Broker>> brokerListResult = mqAdminTemplate.execute(new MQAdminCallback<Result<List<Broker>>>() {
-            public Result<List<Broker>> callback(MQAdminExt mqAdmin) throws Exception {
-                // 获取集群信息
-                ClusterInfo clusterInfo = mqAdmin.examineBrokerClusterInfo();
-                // 获得broker地址map
-                Map<String, BrokerData> brokerAddrTable = clusterInfo.getBrokerAddrTable();
-                List<Broker> list = new ArrayList<Broker>();
-                // 遍历集群中所有的broker
-                for (String brokerName : brokerAddrTable.keySet()) {
-                    HashMap<Long, String> brokerAddrs = brokerAddrTable.get(brokerName).getBrokerAddrs();
-                    for (Long brokerId : brokerAddrs.keySet()) {
-                        Broker broker = new Broker();
-                        broker.setAddr(brokerAddrs.get(brokerId));
-                        broker.setBrokerID(brokerId.intValue());
-                        broker.setBrokerName(brokerName);
-                        list.add(broker);
-                    }
-                }
-                return Result.getResult(list);
-            }
-
-            public Cluster mqCluster() {
-                return mqCluster;
-            }
-
-            public Result<List<Broker>> exception(Exception e) throws Exception {
-                logger.error("cluster:{} err", mqCluster(), e);
-                return Result.getWebErrorResult(e);
-            }
-        });
-        return brokerListResult;
     }
 
     /**
@@ -214,7 +177,6 @@ public class AdminBrokerController extends AdminViewController {
             // 监控结果
             brokerStatVO.setCheckStatus(broker.getCheckStatus());
             brokerStatVO.setCheckTime(broker.getCheckTimeFormat());
-            brokerStatVO.setWritable(broker.isWritable());
             // 当有broker down时，数据库中的broker 地址已过时，增加异常处理
             Result<KVTable> kvTableResult = brokerService.fetchBrokerRuntimeStats(broker.getAddr(), mqCluster);
             KVTable kvTable = kvTableResult.getResult();
@@ -223,13 +185,20 @@ public class AdminBrokerController extends AdminViewController {
                 handleBrokerStat(broker, kvTable, brokerStatVO);
                 brokerStatVO.setCheckStatus(CheckStatusEnum.OK.getStatus());
             } else {
-                brokerStatVO.setCheckStatus(CheckStatusEnum.FAIL.getStatus());
+                if (kvTableResult.getException() instanceof MQBrokerException &&
+                        ((MQBrokerException) kvTableResult.getException()).getErrorMessage().contains("AutoSwitchHAService")) {
+                    brokerStatVO.setCheckStatus(CheckStatusEnum.UNKONWN.getStatus());
+                    brokerStatVO.setVersion(Version.HIGHER_VERSION.toString());
+                } else {
+                    brokerStatVO.setCheckStatus(CheckStatusEnum.FAIL.getStatus());
+                }
             }
-            Properties config = brokerService.fetchBrokerConfig(mqCluster, broker.getAddr()).getResult();
-            if (config != null && "true".equals(config.get("enableControllerMode"))) {
+            BrokerControllerConfig brokerControllerConfig = brokerService.fetchBrokerControllerConfig(broker.getCid(), broker.getAddr());
+            if (brokerControllerConfig.isControllerEnabled()) {
                 brokerStatVO.setControllerEnabled(true);
-                brokerStatVO.setBrokerId(String.valueOf(config.get("brokerId")));
+                brokerStatVO.setBrokerId(String.valueOf(brokerControllerConfig.getBrokerId()));
             }
+            brokerStatVO.setWritable(brokerControllerConfig.isWritable());
         }
         // 重置处理down掉的broker的id
         for (List<BrokerStatVO> brokerStatVOList : brokerGroup.values()) {
@@ -237,7 +206,7 @@ public class AdminBrokerController extends AdminViewController {
             if (controllerEnabled) {
                 brokerStatVOList.stream()
                         .filter(brokerStatVO -> brokerStatVO.getCheckStatus() == CheckStatusEnum.FAIL.getStatus())
-                        .forEach(brokerStatVOFailed -> brokerStatVOFailed.setBrokerId("9"));
+                        .forEach(brokerStatVOFailed -> brokerStatVOFailed.setBrokerId("-1"));
             }
         }
         return brokerGroup;
@@ -843,8 +812,37 @@ public class AdminBrokerController extends AdminViewController {
     @RequestMapping(value = "/cluster/config")
     public String clusterConfig(UserInfo ui, @RequestParam(name = "cid") int cid, Map<String, Object> map) {
         Result<List<ClusterConfig>> result = clusterConfigService.query(cid);
-        setResult(map, toBrokerConfigGroupVOList(result.getResult()));
+        List<BrokerConfigGroupVO> brokerConfigGroupVOList = toBrokerConfigGroupVOList(result.getResult());
+        if (!CollectionUtils.isEmpty(brokerConfigGroupVOList)) {
+            List<BrokerConfig> selectBrokerConfigList = brokerConfigGroupVOList.stream()
+                    .flatMap(group -> group.getBrokerConfigList().stream())
+                    .collect(Collectors.toList());
+            setControllerAddress(cid, selectBrokerConfigList);
+        }
+        setResult(map, brokerConfigGroupVOList);
         return adminViewModule() + "/clusterConfig";
+    }
+
+    public void setControllerAddress(int cid, List<BrokerConfig> brokerConfigList) {
+        if (CollectionUtils.isEmpty(brokerConfigList)) {
+            return;
+        }
+        boolean enableControllerMode = brokerConfigList.stream()
+                .anyMatch(config -> {
+                    return "enableControllerMode".equals(config.getKey()) && "true".equals(config.getOnlineValue());
+                });
+        if (!enableControllerMode) {
+            return;
+        }
+        brokerConfigList.stream()
+                .filter(config -> "controllerAddr".equals(config.getKey()))
+                .findFirst().ifPresent(config -> {
+                    List<Broker> brokers = brokerService.query(cid).getResult();
+                    if (!CollectionUtils.isEmpty(brokers)) {
+                        BrokerControllerConfig brokerControllerConfig = brokerService.fetchBrokerControllerConfig(cid, brokers.get(0).getAddr());
+                        config.setOnlineValue(brokerControllerConfig.getControllerAddr());
+                    }
+                });
     }
 
     /**
